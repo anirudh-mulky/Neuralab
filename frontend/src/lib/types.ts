@@ -30,10 +30,10 @@ export type AdSlot = {
 export type Job = {
   job_id: string
   status: "running" | "done" | "failed"
-  kind: "video" | "image"
+  kind: MediaKind
   created_at: number
   ad_a: AdSlot
   ad_b: AdSlot
 }
 
-export type MediaKind = "video" | "image"
+export type MediaKind = "video" | "image" | "text" | "landing"

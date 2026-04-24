@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import type { Job, MediaKind } from "./types"
+import type { Job } from "./types"
 
 const API_URL: string =
   (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ??
@@ -28,14 +28,24 @@ export async function health() {
 }
 
 export async function submitAnalysis(
-  adA: File,
-  adB: File,
-  kind: MediaKind,
+  payload:
+    | { kind: "video" | "image" | "landing"; adA: File; adB: File }
+    | { kind: "text"; textA: string; textB: string },
 ): Promise<{ job_id: string; status: string }> {
   const fd = new FormData()
-  fd.append("ad_a", adA)
-  fd.append("ad_b", adB)
-  fd.append("kind", kind)
+
+  if (payload.kind === "text") {
+    fd.append("kind", "text")
+    fd.append("text_a", payload.textA)
+    fd.append("text_b", payload.textB)
+  } else {
+    // Landing pages are just images on the wire — backend treats them the same.
+    const wireKind = payload.kind === "landing" ? "image" : payload.kind
+    fd.append("kind", wireKind)
+    fd.append("ad_a", payload.adA)
+    fd.append("ad_b", payload.adB)
+  }
+
   const r = await fetch(`${API_URL}/analyze`, { method: "POST", body: fd })
   return jsonOrThrow(r)
 }

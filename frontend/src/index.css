@@ -7,6 +7,7 @@
     @apply bg-bg-app text-txt-primary font-sans;
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   body {
     min-height: 100vh;
@@ -14,14 +15,63 @@
   h1, h2, h3, .display {
     @apply font-display;
     font-optical-sizing: auto;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
+  }
+  /* Slightly tighter tracking on large display type */
+  .display-tight {
+    letter-spacing: -0.022em;
   }
 }
 
 @layer utilities {
   .mono { font-family: theme('fontFamily.mono'); }
 
-  /* Subtle paper-grain overlay for that editorial feel */
+  /* ── Apple-like ambient backdrop ─────────────────────────────── */
+  .app-backdrop {
+    background:
+      linear-gradient(
+        rgba(83, 74, 183, 0.05) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        90deg,
+        rgba(83, 74, 183, 0.05) 1px,
+        transparent 1px
+      ),
+      radial-gradient(1200px 600px at 10% -10%,
+        rgba(238, 237, 254, 0.75) 0%,
+        transparent 60%),
+      radial-gradient(900px 700px at 90% 10%,
+        rgba(225, 245, 238, 0.55) 0%,
+        transparent 62%),
+      radial-gradient(1000px 800px at 50% 115%,
+        rgba(244, 242, 234, 0.85) 0%,
+        transparent 65%),
+      linear-gradient(180deg, #FAFAF5 0%, #F7F6FA 100%);
+    background-size:
+      64px 64px,
+      64px 64px,
+      auto,
+      auto,
+      auto,
+      auto;
+    background-position:
+      center,
+      center,
+      center,
+      center,
+      center,
+      center;
+    background-attachment:
+      fixed,
+      fixed,
+      fixed,
+      fixed,
+      fixed,
+      fixed;
+  }
+
+  /* ── Paper-grain overlay (unchanged) ───────────────────────────── */
   .grain::before {
     content: "";
     position: fixed;
@@ -30,5 +80,106 @@
     z-index: 1;
     opacity: 0.035;
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  /* ── Hide horizontal-scroll scrollbar in market picker ─────────── */
+  .no-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     EDITORIAL GRADIENTS — subtle depth, still muted
+     ══════════════════════════════════════════════════════════════════ */
+
+  .gradient-hero {
+    background:
+      radial-gradient(ellipse 80% 60% at 15% 0%,
+        rgba(238, 237, 254, 0.55) 0%,
+        transparent 55%),
+      radial-gradient(ellipse 60% 40% at 100% 100%,
+        rgba(225, 245, 238, 0.35) 0%,
+        transparent 60%),
+      linear-gradient(180deg, #FAFAF5 0%, #FAFAF5 100%);
+  }
+
+  .gradient-winner-high {
+    background:
+      radial-gradient(ellipse at 100% 0%,
+        rgba(197, 234, 222, 0.55) 0%,
+        rgba(197, 234, 222, 0.15) 45%,
+        transparent 70%),
+      linear-gradient(135deg, #F3FBF8 0%, #E1F5EE 100%);
+  }
+  .gradient-winner-medium {
+    background:
+      radial-gradient(ellipse at 100% 0%,
+        rgba(197, 234, 222, 0.40) 0%,
+        transparent 60%),
+      linear-gradient(135deg, #F3FBF8 0%, #F3FBF8 60%, #E1F5EE 100%);
+  }
+  .gradient-winner-low {
+    background:
+      radial-gradient(ellipse at 100% 0%,
+        rgba(244, 222, 184, 0.50) 0%,
+        transparent 60%),
+      linear-gradient(135deg, #FFFBF2 0%, #FAEEDA 100%);
+  }
+  .gradient-winner-tied {
+    background:
+      radial-gradient(ellipse at 100% 0%,
+        rgba(244, 242, 234, 0.9) 0%,
+        transparent 60%),
+      linear-gradient(135deg, #FAFAF5 0%, #F4F2EA 100%);
+  }
+
+  .gradient-calibration {
+    background:
+      radial-gradient(ellipse at 0% 0%,
+        rgba(247, 246, 254, 0.8) 0%,
+        transparent 55%),
+      #FFFFFF;
+  }
+
+  .gradient-running {
+    background:
+      radial-gradient(ellipse at 30% 30%,
+        rgba(255, 255, 255, 0.7) 0%,
+        transparent 55%),
+      radial-gradient(ellipse at 70% 80%,
+        rgba(206, 203, 246, 0.5) 0%,
+        transparent 55%),
+      linear-gradient(135deg, #EEEDFE 0%, #F7F6FE 100%);
+    background-size: 200% 200%, 180% 180%, 100% 100%;
+    animation: gradient-drift 18s ease-in-out infinite;
+  }
+
+  .gradient-diagnosis {
+    background:
+      linear-gradient(180deg, #FFFFFF 0%, #FDFCFF 100%);
+  }
+
+  .gradient-idle {
+    background:
+      radial-gradient(ellipse at 50% 30%,
+        rgba(238, 237, 254, 0.4) 0%,
+        transparent 50%),
+      #FFFFFF;
+  }
+
+  .gradient-navbar {
+    background:
+      radial-gradient(120% 200% at 0% 0%,
+        rgba(238, 237, 254, 0.9) 0%,
+        transparent 60%),
+      radial-gradient(120% 200% at 100% 0%,
+        rgba(225, 245, 238, 0.7) 0%,
+        transparent 55%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(245, 244, 255, 0.88) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
   }
 }

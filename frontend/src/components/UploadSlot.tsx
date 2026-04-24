@@ -1,23 +1,25 @@
 import { useCallback, useMemo } from "react"
 import { useDropzone } from "react-dropzone"
-import type { MediaKind } from "../lib/types"
+import type { Accept } from "react-dropzone"
 
 type Props = {
   label: string
-  kind: MediaKind
+  kind: "video" | "image"
   file: File | null
   onChange: (f: File | null) => void
   disabled?: boolean
 }
 
 export function UploadSlot({ label, kind, file, onChange, disabled }: Props) {
-  const accept = useMemo(
-    () =>
-      kind === "video"
-        ? { "video/*": [".mp4", ".mov", ".webm", ".mkv"] }
-        : { "image/*": [".jpg", ".jpeg", ".png", ".webp"] },
-    [kind],
-  )
+  const accept = useMemo<Accept>(() => {
+    const config: Accept = {}
+    if (kind === "video") {
+      config["video/*"] = [".mp4", ".mov", ".webm", ".mkv"]
+    } else {
+      config["image/*"] = [".jpg", ".jpeg", ".png", ".webp"]
+    }
+    return config
+  }, [kind])
 
   const onDrop = useCallback(
     (accepted: File[]) => {
@@ -48,7 +50,7 @@ export function UploadSlot({ label, kind, file, onChange, disabled }: Props) {
         <div
           {...getRootProps()}
           className={[
-            "relative aspect-video rounded-xl cursor-pointer transition-colors",
+            "relative min-h-[160px] lg:min-h-0 lg:aspect-video rounded-xl cursor-pointer transition-colors",
             "border border-dashed flex items-center justify-center",
             isDragActive
               ? "border-purple-600 bg-purple-50"
@@ -56,7 +58,7 @@ export function UploadSlot({ label, kind, file, onChange, disabled }: Props) {
             disabled ? "opacity-50 pointer-events-none" : "",
           ].join(" ")}
         >
-          <input {...getInputProps()} />
+          <input {...getInputProps()} className="hidden" />
           <div className="text-center px-6">
             <div className="text-sm text-txt-secondary">
               {isDragActive ? "Drop it" : `Drop ${kind} or click to browse`}

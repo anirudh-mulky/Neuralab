@@ -26,7 +26,6 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Literal
 
 import modal
 
@@ -49,7 +48,7 @@ jobs_dict = modal.Dict.from_name("neurolab-jobs", create_if_missing=True)
 
 gpu_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("ffmpeg", "git")
+    .apt_install("ffmpeg", "git", "espeak-ng")          # espeak-ng for text-ad TTS
     .pip_install(
         # TRIBE and its transitive deps (torch, transformers, whisperx, etc.)
         "tribev2[plotting] @ git+https://github.com/facebookresearch/tribev2.git",
@@ -69,13 +68,7 @@ gpu_image = (
 
 web_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install(
-        "fastapi[standard]==0.115.0",
-        "python-multipart==0.0.9",
-        "numpy",
-        "nilearn",
-        "opencv-python-headless",
-    )
+    .pip_install("fastapi[standard]==0.115.0", "python-multipart==0.0.9")
 )
 
 
@@ -88,7 +81,7 @@ web_image = (
     gpu="A10G",                               # 24GB VRAM, comfy for TRIBE
     volumes={"/cache": hf_cache},
     secrets=[modal.Secret.from_name("huggingface-secret")],
-    min_containers=1,                         # TEMP: 0 while debugging — flip to 1 once stable
+    min_containers=1,                         # keep 1 warm — kills cold starts
     scaledown_window=600,                     # idle 10 min before shutdown
     timeout=600,                              # 10 min per inference max
     startup_timeout=1800,                     # 30 min for first-ever HF download + warm-up
@@ -122,9 +115,11 @@ class TribeService:
         )
         print("[warm_up] TRIBE loaded.")
 
-        # Trigger lazy extractor init with a SYNTHETIC 3s gray video.
-        # Sintel trailer (52s) runs on CPU during lazy-load (~11 min) and
-        # blows past Modal's startup_timeout. 3s clip = ~30s warm-up.
+        # Trigger lazy extractor init with a tiny SYNTHETIC video.
+        # Why not the Sintel trailer (52s)? Because TRIBE's video extractor
+        # lazy-loads to CPU, so the dummy inference runs at ~6.5s/iter, taking
+        # ~11 min total — which exceeds Modal's startup_timeout. A 3s gray
+        # video gets the same lazy-load behavior in ~30 seconds.
         import cv2
         import numpy as np
         dummy_path = Path(TRIBE_CACHE) / "dummy_tiny.mp4"
@@ -135,7 +130,7 @@ class TribeService:
                 cv2.VideoWriter_fourcc(*"mp4v"),
                 fps, (w, h),
             )
-            frame = np.full((h, w, 3), 128, dtype=np.uint8)
+            frame = np.full((h, w, 3), 128, dtype=np.uint8)  # mid-gray
             for _ in range(fps * secs):
                 writer.write(frame)
             writer.release()
@@ -162,34 +157,47 @@ class TribeService:
     @modal.method()
     def analyze(
         self,
-        media_bytes: bytes,
-        kind: Literal["video", "image"] = "video",
+        media_bytes: bytes = b"",
+        kind: str = "video",              # "video" | "image" | "text"
         original_filename: str = "ad",
+        text: str = "",                   # used when kind == "text"
     ) -> dict:
         """Run TRIBE on one ad, return metrics dict."""
         import numpy as np
         import torch
 
-        from media_prep import image_to_video, strip_audio
+        from media_prep import image_to_video, strip_audio, text_to_video
         from metrics import voxels_to_metrics
 
         torch.cuda.empty_cache()
         t0 = time.perf_counter()
 
-        # Write upload to tmpfs. Pick extension off filename so cv2/ffmpeg
-        # probe correctly.
-        suffix = Path(original_filename).suffix or (".mp4" if kind == "video" else ".jpg")
-        tmp_in = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
-        tmp_in.write(media_bytes)
-        tmp_in.close()
-
+        tmp_in_name = None
         try:
-            if kind == "image":
-                video_path = image_to_video(tmp_in.name)
+            if kind == "text":
+                # No upload — render text to a voiceover video directly.
+                if not text.strip():
+                    raise ValueError("text is empty")
+                video_path = text_to_video(text)
+                label = text[:60] + ("…" if len(text) > 60 else "")
             else:
-                # Audio is stripped — your pipeline doesn't use the audio branch
-                # meaningfully for short ads, and it's where most crashes come from.
-                video_path = strip_audio(tmp_in.name)
+                # Write upload to tmpfs. Pick extension off filename so
+                # cv2/ffmpeg probe correctly.
+                suffix = Path(original_filename).suffix or (
+                    ".mp4" if kind == "video" else ".jpg"
+                )
+                tmp_in = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+                tmp_in.write(media_bytes)
+                tmp_in.close()
+                tmp_in_name = tmp_in.name
+
+                if kind == "image":
+                    # "landing" (landing-page screenshot) is just an image
+                    video_path = image_to_video(tmp_in.name)
+                else:  # video
+                    # Audio is stripped — short ads crash the audio branch.
+                    video_path = strip_audio(tmp_in.name)
+                label = original_filename
 
             df = self.model.get_events_dataframe(video_path=video_path)
             preds, _segments = self.model.predict(events=df)
@@ -200,7 +208,7 @@ class TribeService:
             peak_vram = torch.cuda.max_memory_allocated() / 1e9
 
             return {
-                "filename": original_filename,
+                "filename": label,
                 "metrics": scores,
                 "timing": {
                     "inference_sec": round(elapsed, 2),
@@ -209,10 +217,11 @@ class TribeService:
                 },
             }
         finally:
-            try:
-                os.unlink(tmp_in.name)
-            except OSError:
-                pass
+            if tmp_in_name:
+                try:
+                    os.unlink(tmp_in_name)
+                except OSError:
+                    pass
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -241,6 +250,7 @@ def fastapi_app():
 
     MAX_VIDEO_MB = 100
     MAX_IMAGE_MB = 15
+    MAX_TEXT_CHARS = 500
 
     @api.get("/health")
     def health():
@@ -248,36 +258,69 @@ def fastapi_app():
 
     @api.post("/analyze")
     async def analyze(
-        ad_a: UploadFile = File(...),
-        ad_b: UploadFile = File(...),
-        kind: str = Form("video"),            # "video" | "image"
+        kind: str = Form("video"),                    # "video" | "image" | "text"
+        ad_a: UploadFile = File(None),                # for video/image
+        ad_b: UploadFile = File(None),
+        text_a: str = Form(""),                       # for text kind
+        text_b: str = Form(""),
     ):
-        if kind not in ("video", "image"):
-            raise HTTPException(400, "kind must be 'video' or 'image'")
+        if kind not in ("video", "image", "text"):
+            raise HTTPException(400, "kind must be 'video', 'image', or 'text'")
 
-        limit_mb = MAX_IMAGE_MB if kind == "image" else MAX_VIDEO_MB
-        limit_bytes = limit_mb * 1024 * 1024
-
-        bytes_a = await ad_a.read()
-        bytes_b = await ad_b.read()
-
-        for label, data in (("ad_a", bytes_a), ("ad_b", bytes_b)):
-            if len(data) > limit_bytes:
-                raise HTTPException(413, f"{label} exceeds {limit_mb}MB")
-            if len(data) < 1024:
-                raise HTTPException(400, f"{label} is suspiciously small")
-
-        # Fire-and-forget: returns a FunctionCall handle we can poll later.
         svc = TribeService()
-        call_a = svc.analyze.spawn(bytes_a, kind, ad_a.filename or "ad_a")
-        call_b = svc.analyze.spawn(bytes_b, kind, ad_b.filename or "ad_b")
+
+        if kind == "text":
+            a = (text_a or "").strip()
+            b = (text_b or "").strip()
+            if not a or not b:
+                raise HTTPException(400, "text_a and text_b are both required")
+            if len(a) > MAX_TEXT_CHARS or len(b) > MAX_TEXT_CHARS:
+                raise HTTPException(413, f"text exceeds {MAX_TEXT_CHARS} chars")
+
+            call_a = svc.analyze.spawn(
+                media_bytes=b"", kind="text",
+                original_filename=a[:40], text=a,
+            )
+            call_b = svc.analyze.spawn(
+                media_bytes=b"", kind="text",
+                original_filename=b[:40], text=b,
+            )
+            label_a = a[:60] + ("…" if len(a) > 60 else "")
+            label_b = b[:60] + ("…" if len(b) > 60 else "")
+        else:
+            # video / image — file uploads required
+            if ad_a is None or ad_b is None:
+                raise HTTPException(400, "ad_a and ad_b files required")
+
+            limit_mb = MAX_IMAGE_MB if kind == "image" else MAX_VIDEO_MB
+            limit_bytes = limit_mb * 1024 * 1024
+
+            bytes_a = await ad_a.read()
+            bytes_b = await ad_b.read()
+
+            for label, data in (("ad_a", bytes_a), ("ad_b", bytes_b)):
+                if len(data) > limit_bytes:
+                    raise HTTPException(413, f"{label} exceeds {limit_mb}MB")
+                if len(data) < 1024:
+                    raise HTTPException(400, f"{label} is suspiciously small")
+
+            call_a = svc.analyze.spawn(
+                media_bytes=bytes_a, kind=kind,
+                original_filename=ad_a.filename or "ad_a", text="",
+            )
+            call_b = svc.analyze.spawn(
+                media_bytes=bytes_b, kind=kind,
+                original_filename=ad_b.filename or "ad_b", text="",
+            )
+            label_a = ad_a.filename or "ad_a"
+            label_b = ad_b.filename or "ad_b"
 
         job_id = uuid.uuid4().hex[:12]
         jobs_dict[job_id] = {
             "call_a": call_a.object_id,
             "call_b": call_b.object_id,
-            "filename_a": ad_a.filename,
-            "filename_b": ad_b.filename,
+            "filename_a": label_a,
+            "filename_b": label_b,
             "kind": kind,
             "created_at": time.time(),
         }
@@ -291,14 +334,15 @@ def fastapi_app():
             raise HTTPException(404, "job not found")
 
         def poll(call_id: str):
+            import traceback
             try:
                 fc = modal.FunctionCall.from_id(call_id)
                 return fc.get(timeout=0)      # raises TimeoutError if pending
             except TimeoutError:
                 return None
             except Exception as e:            # function raised
-                import traceback
-                print(f"[poll] call_id={call_id}:", traceback.format_exc())
+                tb = traceback.format_exc()
+                print(f"[poll] call_id={call_id} exception:\n{tb}")
                 return {"__error__": f"{type(e).__name__}: {e}"}
 
         result_a = poll(job["call_a"])

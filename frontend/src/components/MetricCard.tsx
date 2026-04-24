@@ -6,58 +6,63 @@ type Props = {
 }
 
 export function MetricCard({ name, desc, valA, valB }: Props) {
-  const diff = valA - valB
-
-  const leadBg = diff > 0 ? "bg-teal-50" : diff < 0 ? "bg-amber-50" : "bg-[#EEEEEE]"
-  const leadFg = diff > 0 ? "text-teal-600" : diff < 0 ? "text-amber-900" : "text-[#555]"
-  const leadText = diff === 0 ? "Tied" : diff > 0 ? `A +${diff}` : `B +${-diff}`
-
-  const fillA = diff > 0 ? "bg-teal-500" : diff < 0 ? "bg-purple-400" : "bg-purple-400"
-  const fillB = diff < 0 ? "bg-teal-500" : diff > 0 ? "bg-purple-400" : "bg-purple-400"
-  const colorA = diff >= 0 ? "text-txt-primary" : "text-txt-tertiary"
-  const colorB = diff <= 0 ? "text-txt-primary" : "text-txt-tertiary"
+  const aWins = valA > valB
+  const bWins = valB > valA
+  const tied  = valA === valB
+  const delta = Math.abs(valA - valB)
 
   return (
-    <div className="bg-bg-card border border-border rounded-lg px-3.5 py-3">
-      <div className="flex items-center justify-between">
-        <div className="text-[13px] font-medium text-txt-primary">{name}</div>
-        <span
-          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full mono ${leadBg} ${leadFg}`}
-        >
-          {leadText}
-        </span>
+    <div className="bg-bg-card border border-border rounded-xl p-3.5 hover:border-border transition-colors">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <div className="text-[13px] font-medium text-txt-primary">
+            {name}
+          </div>
+          <div className="text-[10px] text-txt-tertiary italic mt-0.5">
+            {desc}
+          </div>
+        </div>
+        {!tied && (
+          <div className="text-[10px] mono text-txt-tertiary shrink-0">
+            +{delta} {aWins ? "A" : "B"}
+          </div>
+        )}
       </div>
-      <div className="text-[11px] text-txt-tertiary mb-2">{desc}</div>
 
-      <Bar label="A" value={valA} fill={fillA} color={colorA} />
-      <Bar label="B" value={valB} fill={fillB} color={colorB} />
+      {/* Bars */}
+      <div className="space-y-1.5">
+        <Bar label="A" value={valA} winner={aWins} />
+        <Bar label="B" value={valB} winner={bWins} />
+      </div>
     </div>
   )
 }
 
-function Bar({
-  label,
-  value,
-  fill,
-  color,
-}: {
-  label: string
-  value: number
-  fill: string
-  color: string
-}) {
+function Bar({ label, value, winner }: { label: string; value: number; winner: boolean }) {
   return (
-    <div className="grid grid-cols-[22px_1fr_30px] gap-2 items-center mt-1.5 text-[11px]">
-      <span className="text-txt-tertiary">{label}</span>
-      <div className="h-[5px] bg-border-dim rounded-[3px] overflow-hidden">
+    <div className="flex items-center gap-2">
+      <div className={[
+        "text-[10px] mono w-3 shrink-0",
+        winner ? "text-purple-600 font-semibold" : "text-txt-tertiary",
+      ].join(" ")}>
+        {label}
+      </div>
+      <div className="flex-1 h-1.5 rounded-full bg-bg-muted overflow-hidden">
         <div
-          className={`h-full rounded-[3px] ${fill}`}
-          style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
+          className={[
+            "h-full rounded-full transition-all duration-500 ease-out",
+            winner ? "bg-purple-600" : "bg-border",
+          ].join(" ")}
+          style={{ width: `${Math.max(2, value)}%` }}
         />
       </div>
-      <span className={`mono font-medium text-right text-[12px] ${color}`}>
+      <div className={[
+        "text-[11px] mono w-8 text-right tabular-nums",
+        winner ? "text-txt-primary font-semibold" : "text-txt-secondary",
+      ].join(" ")}>
         {value}
-      </span>
+      </div>
     </div>
   )
 }
